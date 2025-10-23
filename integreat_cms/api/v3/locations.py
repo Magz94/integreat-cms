@@ -21,9 +21,7 @@ from .location_categories import transform_location_category
 
 if TYPE_CHECKING:
     from typing import Any
-
     from django.http import HttpRequest
-
     from ...cms.models import POI, POITranslation
 
 from datetime import datetime, time
@@ -41,8 +39,7 @@ def _tz_key(tz_candidate: str | ZoneInfo | None) -> str | None:
         return None
     if isinstance(tz_candidate, str):
         return tz_candidate
-    # ZoneInfo has a .key attribute
-    key = getattr(tz_candidate, "key", None)
+    key = getattr(tz_candidate, "key", None)  # ZoneInfo has .key
     return key or str(tz_candidate)
 
 
@@ -74,10 +71,8 @@ def _iso_local_time(hms: str | None, tz_name: str | None) -> str | None:
         t.second,
         tzinfo=tz,
     )
-
-    # Format as 'HH:MM:SS+HH:MM' (e.g., Phoenix -> -07:00)
-    base = dt.strftime("%H:%M:%S%z")
-    return f"{base[:-5]}{base[-5:-2]}:{base[-2:]}"
+    base = dt.strftime("%H:%M:%S%z")  # e.g. 10:00:00+0200
+    return f"{base[:-5]}{base[-5:-2]}:{base[-2:]}"  # -> 10:00:00+02:00
 
 
 def transform_poi(poi: POI | None) -> dict[str, Any]:
@@ -119,14 +114,18 @@ def transform_poi(poi: POI | None) -> dict[str, Any]:
 
 
 def transform_poi_translation(
-    poi_translation: POITranslation, *, region_tz_name: str | None
+    poi_translation: POITranslation,
+    *,
+    region_tz_name: str | None,
+    include_iso_times: bool = False,
 ) -> dict[str, Any]:
     """
-    Create JSON for a POI translation and enrich opening hours with ISO-8601 times.
+    Create JSON for a POI translation and optionally enrich opening hours with ISO-8601 times.
 
     :param poi_translation: POI translation to convert.
     :param region_tz_name: IANA timezone (e.g., "America/Phoenix") used for slot offsets;
         falls back to settings.TIME_ZONE.
+    :param include_iso_times: When True, add start_time/end_time/timezone fields.
     :return: Data for the APIv3 locations endpoint.
     """
 
@@ -160,7 +159,7 @@ def transform_poi_translation(
     # Only return opening hours if they differ from the default value and the location is not temporarily closed
     opening_hours = None
     if not poi.temporarily_closed and poi.opening_hours != get_default_opening_hours():
-        # Enrich timeSlots with ISO-8601 times using the region's timezone
+        # Enrich timeSlots with ISO-8601 times using the region's timezone (opt-in)
         default_tz: str = cast(str, getattr(settings, "TIME_ZONE", "Europe/Berlin"))
         tz_key: str = _tz_key(region_tz_name) or default_tz
 
@@ -171,16 +170,16 @@ def transform_poi_translation(
             new_day = {k: v for k, v in day.items() if k != "timeSlots"}
             new_slots: list[dict[str, Any]] = []
             for slot in day.get("timeSlots") or []:
-                start = slot.get("start")
-                end = slot.get("end")
-                new_slots.append(
-                    {
-                        **slot,  # keep legacy fields (start/end/comment/appointmentOnly/etc.)
-                        "start_time": _iso_local_time(start, tz_key),
-                        "end_time": _iso_local_time(end, tz_key),
-                        "timezone": tz_key,
-                    }
-                )
+                slot_copy = dict(
+                    slot
+                )  # keep legacy fields (start/end/comment/appointmentOnly/etc.)
+                if include_iso_times:
+                    start = slot.get("start")
+                    end = slot.get("end")
+                    slot_copy["start_time"] = _iso_local_time(start, tz_key)
+                    slot_copy["end_time"] = _iso_local_time(end, tz_key)
+                    slot_copy["timezone"] = tz_key
+                new_slots.append(slot_copy)
             new_day["timeSlots"] = new_slots
             enriched_days.append(new_day)
 
@@ -270,6 +269,14 @@ def locations(
             return JsonResponse({"error": str(e)}, status=400)
         pois = pois.filter(location_on_map=location_on_map)
 
+    # Opt-in flag to include ISO-8601 times in timeSlots
+    include_iso_times = False
+    if "iso_times" in request.GET:
+        try:
+            include_iso_times = strtobool(request.GET["iso_times"])
+        except ValueError as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
     # Compute once (works whether Region.timezone is a str or ZoneInfo)
     region_tz_name = _tz_key(
         getattr(region, "timezone", None) or getattr(region, "timezone_name", None)
@@ -278,7 +285,11 @@ def locations(
         translation = poi.get_public_translation(language_slug)
         if translation:
             result.append(
-                transform_poi_translation(translation, region_tz_name=region_tz_name)
+                transform_poi_translation(
+                    translation,
+                    region_tz_name=region_tz_name,
+                    include_iso_times=include_iso_times,
+                )
             )
 
     return JsonResponse(
