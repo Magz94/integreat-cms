@@ -21,7 +21,9 @@ from .location_categories import transform_location_category
 
 if TYPE_CHECKING:
     from typing import Any
+
     from django.http import HttpRequest
+
     from ...cms.models import POI, POITranslation
 
 from datetime import datetime, time
