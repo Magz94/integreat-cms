@@ -45,6 +45,7 @@ def _tz_key(tz_candidate: str | ZoneInfo | None) -> str | None:
     key = getattr(tz_candidate, "key", None)
     return key or str(tz_candidate)
 
+
 def _iso_local_time(hms: str | None, tz_name: str | None) -> str | None:
     """
     Convert 'HH:MM'/'HH:MM:SS' (wall time) to 'HH:MM:SS±HH:MM' for today in a zone.
@@ -65,8 +66,13 @@ def _iso_local_time(hms: str | None, tz_name: str | None) -> str | None:
     tz = ZoneInfo(tz_key)
     local_today = datetime.now(tz).date()
     dt = datetime(
-        local_today.year, local_today.month, local_today.day,
-        t.hour, t.minute, t.second, tzinfo=tz
+        local_today.year,
+        local_today.month,
+        local_today.day,
+        t.hour,
+        t.minute,
+        t.second,
+        tzinfo=tz,
     )
 
     # Format as 'HH:MM:SS+HH:MM' (e.g., Phoenix -> -07:00)
@@ -112,7 +118,9 @@ def transform_poi(poi: POI | None) -> dict[str, Any]:
     }
 
 
-def transform_poi_translation(poi_translation: POITranslation, *, region_tz_name: str | None) -> dict[str, Any]:
+def transform_poi_translation(
+    poi_translation: POITranslation, *, region_tz_name: str | None
+) -> dict[str, Any]:
     """
     Create JSON for a POI translation and enrich opening hours with ISO-8601 times.
 
@@ -162,7 +170,7 @@ def transform_poi_translation(poi_translation: POITranslation, *, region_tz_name
             # copy non-slot keys as-is
             new_day = {k: v for k, v in day.items() if k != "timeSlots"}
             new_slots: list[dict[str, Any]] = []
-            for slot in (day.get("timeSlots") or []):
+            for slot in day.get("timeSlots") or []:
                 start = slot.get("start")
                 end = slot.get("end")
                 new_slots.append(
@@ -263,7 +271,9 @@ def locations(
         pois = pois.filter(location_on_map=location_on_map)
 
     # Compute once (works whether Region.timezone is a str or ZoneInfo)
-    region_tz_name = _tz_key(getattr(region, "timezone", None) or getattr(region, "timezone_name", None))
+    region_tz_name = _tz_key(
+        getattr(region, "timezone", None) or getattr(region, "timezone_name", None)
+    )
     for poi in pois:
         translation = poi.get_public_translation(language_slug)
         if translation:
