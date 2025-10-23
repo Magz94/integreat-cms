@@ -4,7 +4,7 @@ This module includes functions related to the locations/POIs API endpoint.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import cast, TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import Prefetch
@@ -29,7 +29,8 @@ if TYPE_CHECKING:
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-def _tz_key(tz_candidate) -> str | None:
+
+def _tz_key(tz_candidate: str | ZoneInfo | None) -> str | None:
     """
     Normalize a timezone value to an IANA key string.
 
@@ -59,7 +60,8 @@ def _iso_local_time(hms: str | None, tz_name: str | None) -> str | None:
     except ValueError as e:
         raise ValueError(f"Expected 'HH:MM' or 'HH:MM:SS', got {hms!r}") from e
 
-    tz_key = _tz_key(tz_name) or getattr(settings, "TIME_ZONE", "Europe/Berlin")
+    default_tz: str = cast(str, getattr(settings, "TIME_ZONE", "Europe/Berlin"))
+    tz_key = _tz_key(tz_name) or default_tz
     tz = ZoneInfo(tz_key)
     local_today = datetime.now(tz).date()
     dt = datetime(
@@ -151,7 +153,8 @@ def transform_poi_translation(poi_translation: POITranslation, *, region_tz_name
     opening_hours = None
     if not poi.temporarily_closed and poi.opening_hours != get_default_opening_hours():
         # Enrich timeSlots with ISO-8601 times using the region's timezone
-        tz_key = _tz_key(region_tz_name) or getattr(settings, "TIME_ZONE", "Europe/Berlin")
+        default_tz: str = cast(str, getattr(settings, "TIME_ZONE", "Europe/Berlin"))
+        tz_key: str = _tz_key(region_tz_name) or default_tz
 
         src_days = poi.opening_hours or []
         enriched_days: list[dict[str, Any]] = []
